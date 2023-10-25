@@ -36,15 +36,15 @@ type Heartbeat struct {
 	Job       WorkerJob
 }
 
-func Execute() {
-	state := &Heartbeat{}
-	var heartBeatReceived <-chan *Heartbeat
+func Execute(close chan bool) {
+	state := Heartbeat{}
+	var heartBeatReceived <-chan Heartbeat
 
 	startMapJob := make(chan bool, 1)
-	var mapFinished <-chan *Heartbeat
+	var mapFinished <-chan Heartbeat
 
 	startReduceJob := make(chan bool, 1)
-	var reduceFinished <-chan *Heartbeat
+	var reduceFinished <-chan Heartbeat
 
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -72,13 +72,15 @@ func Execute() {
 			reduceFinished = doReduce(state)
 		case state = <-reduceFinished:
 			reduceFinished = nil
+		case <-close:
+			fmt.Print("at close")
+			break
 		}
-
 	}
 }
 
-func doMap(state *Heartbeat) <-chan *Heartbeat {
-	result := make(chan *Heartbeat)
+func doMap(state Heartbeat) <-chan Heartbeat {
+	result := make(chan Heartbeat)
 	go func() {
 		fmt.Println("Starting doing map job", time.Now())
 		<-time.After(time.Second * 12)
@@ -90,8 +92,8 @@ func doMap(state *Heartbeat) <-chan *Heartbeat {
 	return result
 }
 
-func doReduce(state *Heartbeat) <-chan *Heartbeat {
-	result := make(chan *Heartbeat)
+func doReduce(state Heartbeat) <-chan Heartbeat {
+	result := make(chan Heartbeat)
 	go func() {
 		fmt.Println("Starting doing reduce job", time.Now())
 		<-time.After(time.Second * 22)
@@ -103,8 +105,8 @@ func doReduce(state *Heartbeat) <-chan *Heartbeat {
 	return result
 }
 
-func callHb(state *Heartbeat) <-chan *Heartbeat {
-	hb := make(chan *Heartbeat)
+func callHb(state Heartbeat) <-chan Heartbeat {
+	hb := make(chan Heartbeat)
 	go func() {
 		fmt.Println("Calling heartbeat", time.Now())
 		<-time.After(time.Second * 2)

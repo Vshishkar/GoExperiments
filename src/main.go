@@ -1,14 +1,14 @@
 package main
 
 import (
-	"distributed_systems/crawler"
 	"distributed_systems/heartbeat"
-	"fmt"
+	"time"
 )
 
 func main() {
-	heartbeat.Execute()
-	crawler.Sequential("https://golang.org/", 4)
-	fmt.Println("___________________________")
-	crawler.Coordinator("https://golang.org/")
+	close := make(chan bool)
+	go heartbeat.Execute(close)
+
+	<-time.After(time.Minute)
+	close <- true
 }
