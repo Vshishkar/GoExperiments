@@ -2,7 +2,6 @@ package heartbeat
 
 import (
 	"fmt"
-	"math/rand"
 	"time"
 )
 
@@ -31,20 +30,15 @@ func (j WorkerJob) String() string {
 	return "unknown"
 }
 
-type Heartbeat struct {
-	Timestamp time.Time
-	Job       WorkerJob
-}
-
-func Execute(close chan bool) {
-	state := Heartbeat{}
-	var heartBeatReceived <-chan Heartbeat
+func StartProcessing(c *Coordinator, close chan bool) {
+	state := WorkerState{}
+	var heartBeatReceived <-chan WorkerState
 
 	startMapJob := make(chan bool, 1)
-	var mapFinished <-chan Heartbeat
+	var mapFinished <-chan WorkerState
 
 	startReduceJob := make(chan bool, 1)
-	var reduceFinished <-chan Heartbeat
+	var reduceFinished <-chan WorkerState
 
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -52,23 +46,24 @@ func Execute(close chan bool) {
 	for {
 		select {
 		case <-ticker.C:
-			heartBeatReceived = callHb(state)
+			heartBeatReceived = callHb(c, state)
 		case state = <-heartBeatReceived:
 			heartBeatReceived = nil
-			fmt.Println("This is received heart beat", state.Job, state.Timestamp)
+			fmt.Println("This is received heart beat", state.JobStatus, state.Timestamp)
 			// do job scheduling here
-			if state.Job == MapSchedule {
+			if state.JobStatus == MapSchedule {
 				startMapJob <- true
-			} else if state.Job == ReduceSchedule {
+			} else if state.JobStatus == ReduceSchedule {
 				startReduceJob <- true
 			}
 		case <-startMapJob:
-			state.Job = MapInProgress
+			state.JobStatus = MapInProgress
 			mapFinished = doMap(state)
 		case state = <-mapFinished:
 			mapFinished = nil
+			c.JobFinished(state)
 		case <-startReduceJob:
-			state.Job = ReduceInProgress
+			state.JobStatus = ReduceInProgress
 			reduceFinished = doReduce(state)
 		case state = <-reduceFinished:
 			reduceFinished = nil
@@ -79,51 +74,48 @@ func Execute(close chan bool) {
 	}
 }
 
-func doMap(state Heartbeat) <-chan Heartbeat {
-	result := make(chan Heartbeat)
+func doMap(state WorkerState) <-chan WorkerState {
+	result := make(chan WorkerState)
 	go func() {
 		fmt.Println("Starting doing map job", time.Now())
 		<-time.After(time.Second * 12)
 		fmt.Println("finished map job", time.Now())
-		state.Job = Idle
+		state.JobStatus = Idle
+
+		for i := 0; i < state.MapJob.nReducers; i++ {
+			arr, ok := state.MapJob.outPuts[i]
+			if ok == false {
+				arr = make([]string, 0)
+			}
+			arr = append(arr, fmt.Sprintf("%v-%v", state.MapJob.file, i+1))
+			state.MapJob.outPuts[i] = arr
+		}
+
 		result <- state
 		defer close(result)
 	}()
 	return result
 }
 
-func doReduce(state Heartbeat) <-chan Heartbeat {
-	result := make(chan Heartbeat)
+func doReduce(state WorkerState) <-chan WorkerState {
+	result := make(chan WorkerState)
 	go func() {
 		fmt.Println("Starting doing reduce job", time.Now())
 		<-time.After(time.Second * 22)
 		fmt.Println("finished reduce job", time.Now())
-		state.Job = Idle
+		state.JobStatus = Idle
 		result <- state
 		defer close(result)
 	}()
 	return result
 }
 
-func callHb(state Heartbeat) <-chan Heartbeat {
-	hb := make(chan Heartbeat)
+func callHb(c *Coordinator, state WorkerState) <-chan WorkerState {
+	hb := make(chan WorkerState)
 	go func() {
 		fmt.Println("Calling heartbeat", time.Now())
 		<-time.After(time.Second * 2)
-		state.Timestamp = time.Now()
-
-		if state.Job == MapInProgress || state.Job == ReduceInProgress {
-			hb <- state
-			return
-		}
-
-		if state.Job == Idle {
-			if rand.Intn(2) == 1 {
-				state.Job = MapSchedule
-			} else {
-				state.Job = ReduceSchedule
-			}
-		}
+		state = c.Schedule(state)
 		hb <- state
 		defer close(hb)
 	}()

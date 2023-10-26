@@ -6,9 +6,7 @@ import (
 )
 
 func main() {
-	close := make(chan bool)
-	go heartbeat.Execute(close)
+	go heartbeat.Execute()
 
-	<-time.After(time.Minute)
-	close <- true
+	<-time.After(time.Hour)
 }
